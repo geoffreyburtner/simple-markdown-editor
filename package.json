@@ -1,0 +1,48 @@
+{
+  "name": "markdown-reader",
+  "version": "1.0.0",
+  "description": "A personal, lightweight markdown reader/editor with live preview and dark mode.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "set \"ELECTRON_RUN_AS_NODE=\" && electron . --enable-logging",
+    "dist": "set \"ELECTRON_RUN_AS_NODE=\" && electron-builder --win nsis"
+  },
+  "author": "Geoffrey Burtner",
+  "license": "MIT",
+  "dependencies": {
+    "dompurify": "^3.1.6",
+    "highlight.js": "^11.11.1",
+    "marked": "^12.0.2"
+  },
+  "devDependencies": {
+    "electron": "^31.3.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.geoffreyburtner.markdownreader",
+    "productName": "Markdown Reader",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!Icon_working.ai",
+      "!icon.png"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Markdown Reader"
+    }
+  }
+}

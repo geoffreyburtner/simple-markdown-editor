@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; script-src 'self';" />
+  <title>Markdown Reader</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header id="toolbar">
+    <div class="toolbar-group">
+      <button id="btn-new" title="New (Ctrl+N)">New</button>
+      <button id="btn-open" title="Open (Ctrl+O)">Open</button>
+      <button id="btn-save" title="Save (Ctrl+S)">Save</button>
+      <button id="btn-save-as" title="Save As (Ctrl+Shift+S)">Save As</button>
+      <span class="toolbar-sep"></span>
+      <button id="btn-export-html" title="Export as HTML (Ctrl+Shift+E)">↧ HTML</button>
+      <button id="btn-export-pdf" title="Export as PDF (Ctrl+Shift+P)">↧ PDF</button>
+    </div>
+    <div class="toolbar-group toolbar-right">
+      <span id="file-name">Untitled</span>
+      <span id="dirty-dot" class="hidden" title="Unsaved changes">●</span>
+      <button id="btn-guide" title="Markdown cheatsheet">? Guide</button>
+      <button id="btn-toggle-preview" title="Toggle Preview (Ctrl+P)">Preview</button>
+    </div>
+  </header>
+
+  <main id="workspace">
+    <section id="editor-pane" class="pane">
+      <div id="editor-wrap">
+        <pre id="highlight" aria-hidden="true"><code id="highlight-code" class="hljs"></code></pre>
+        <textarea id="editor" spellcheck="false"
+                  placeholder="# Start typing markdown…"></textarea>
+      </div>
+    </section>
+    <div id="divider" title="Drag to resize"></div>
+    <section id="preview-pane" class="pane">
+      <article id="preview" class="markdown-body"></article>
+    </section>
+  </main>
+
+  <footer id="statusbar">
+    <span id="status-path">No file</span>
+    <span id="status-counts">0 words · 0 chars</span>
+  </footer>
+
+  <div id="toast" class="hidden"></div>
+  <div id="drop-overlay"><span>Drop a markdown file to open</span></div>
+
+  <div id="cheatsheet" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="Markdown cheatsheet">
+    <div class="modal">
+      <header class="modal-header">
+        <h2>Markdown Cheatsheet</h2>
+        <button id="btn-close-cheatsheet" class="modal-close" title="Close (Esc)">✕</button>
+      </header>
+      <div class="modal-body">
+        <table class="cheat-table">
+          <thead><tr><th>Element</th><th>Markdown syntax</th><th>Result</th></tr></thead>
+          <tbody id="cheat-body"></tbody>
+        </table>
+        <p class="cheat-note">Tip: <code>Ctrl+P</code> toggles the preview pane. This app supports GitHub-Flavored Markdown.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
