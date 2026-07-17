@@ -2,11 +2,42 @@
 
 const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
 const fs = require('fs/promises');
+const fsSync = require('fs');
 const path = require('path');
 const os = require('os');
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
+
+// A markdown file waiting to be opened once the renderer is ready (set when the
+// app is launched by double-clicking an associated file).
+let pendingFile = null;
+
+const OPENABLE_EXT = /\.(md|markdown|mdown|mkd|txt)$/i;
+
+// Find a markdown/text file path among launch arguments. On Windows, opening a
+// file via its association passes the path as a command-line argument.
+function fileArgFrom(argv) {
+  const candidate = argv.slice(1).find((arg) => {
+    if (!arg || arg.startsWith('-') || arg === '.') return false;
+    if (!OPENABLE_EXT.test(arg)) return false;
+    try {
+      return fsSync.statSync(arg).isFile();
+    } catch {
+      return false;
+    }
+  });
+  return candidate ? path.resolve(candidate) : null;
+}
+
+// Tell the renderer to open a specific file.
+function openInRenderer(filePath) {
+  if (mainWindow && !mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.send('file:open-path', filePath);
+  } else {
+    pendingFile = filePath;
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -27,6 +58,14 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // Once the page is ready, hand off any file the app was launched to open.
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (pendingFile) {
+      mainWindow.webContents.send('file:open-path', pendingFile);
+      pendingFile = null;
+    }
+  });
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -235,15 +274,41 @@ ipcMain.handle('dialog:export-pdf', async (_event, { html, defaultPath }) => {
 
 // ---------------------------------------------------------------------------
 
-app.whenReady().then(() => {
-  buildMenu();
-  createWindow();
+// Ensure a single instance: a second launch (e.g. double-clicking another .md
+// file) is routed into the already-running window instead of opening anew.
+const gotLock = app.requestSingleInstanceLock();
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+if (!gotLock) {
+  app.quit();
+} else {
+  // Capture a file passed on the initial launch.
+  pendingFile = fileArgFrom(process.argv);
+
+  app.on('second-instance', (_event, argv) => {
+    const filePath = fileArgFrom(argv);
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+      if (filePath) openInRenderer(filePath);
+    }
   });
-});
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+  // macOS delivers file-open requests through this event rather than argv.
+  app.on('open-file', (event, filePath) => {
+    event.preventDefault();
+    openInRenderer(filePath);
+  });
+
+  app.whenReady().then(() => {
+    buildMenu();
+    createWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+}

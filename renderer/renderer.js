@@ -155,6 +155,19 @@ async function openDocument() {
   loadDocument(result.filePath, result.content);
 }
 
+// Open a file by absolute path (used by file associations and drag-and-drop).
+async function openDocumentPath(filePath) {
+  if (!filePath) return;
+  if (!(await confirmProceed())) return;
+  const result = await window.api.readFile(filePath);
+  if (result.error) {
+    showToast(`Could not open: ${result.error}`, true);
+    return;
+  }
+  loadDocument(filePath, result.content);
+  showToast(`Opened ${baseName(filePath)}`);
+}
+
 // Returns true on a successful save, false if canceled/failed.
 async function saveDocument() {
   if (!state.filePath) return await saveDocumentAs();
@@ -369,14 +382,7 @@ window.addEventListener('drop', async (e) => {
     return;
   }
 
-  if (!(await confirmProceed())) return;
-  const result = await window.api.readFile(filePath);
-  if (result.error) {
-    showToast(`Could not open: ${result.error}`, true);
-    return;
-  }
-  loadDocument(filePath, result.content);
-  showToast(`Opened ${baseName(filePath)}`);
+  await openDocumentPath(filePath);
 });
 
 // ---------------------------------------------------------------------------
@@ -450,6 +456,9 @@ window.api.onMenu('menu:save-as', saveDocumentAs);
 window.api.onMenu('menu:toggle-preview', togglePreview);
 window.api.onMenu('menu:export-html', exportAsHtml);
 window.api.onMenu('menu:export-pdf', exportAsPdf);
+
+// Open a file when launched via a file association (or a second launch).
+window.api.onOpenFile(openDocumentPath);
 
 // Warn before closing/reloading with unsaved changes.
 window.addEventListener('beforeunload', (e) => {

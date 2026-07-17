@@ -51,6 +51,11 @@ contextBridge.exposeInMainWorld('api', {
   exportHtml: (html, defaultPath) => ipcRenderer.invoke('dialog:export-html', { html, defaultPath }),
   exportPdf: (html, defaultPath) => ipcRenderer.invoke('dialog:export-pdf', { html, defaultPath }),
 
+  // Main asks the renderer to open a specific file (file association / drag onto icon).
+  onOpenFile: (callback) => {
+    ipcRenderer.on('file:open-path', (_event, filePath) => callback(filePath));
+  },
+
   // Menu -> renderer events.
   onMenu: (channel, callback) => {
     const valid = ['menu:new', 'menu:open', 'menu:save', 'menu:save-as', 'menu:toggle-preview',
