@@ -26,6 +26,30 @@ npm start
 > On Windows, if the app exits immediately with a `Cannot read properties of undefined (reading 'handle')`
 > error, make sure the `ELECTRON_RUN_AS_NODE` environment variable is **not** set to `1`.
 
+## Building the installer
+
+```bash
+npm run dist
+```
+
+Produces `dist/Markdown Reader Setup <version>.exe` (a Windows NSIS installer).
+
+## Cutting a release
+
+```bash
+npm run release
+```
+
+Reads the version from `package.json`, pushes the current commit, builds the
+installer, then creates a GitHub release (tag `v<version>`) and uploads the
+installer as a download. It authenticates with the GitHub token already stored
+by Git Credential Manager (the one `git push` uses) — no `gh` CLI or manual
+token needed.
+
+To publish a new version: bump `version` in `package.json`, commit, then run
+`npm run release`. Useful flags: `-- --no-build` (reuse an existing installer),
+`-- --notes <file>` (custom notes), `-- --draft`.
+
 ## Keyboard shortcuts
 
 | Action          | Shortcut          |
