@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; script-src 'self';" />
+        content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; script-src 'self';" />
   <title>Markdown Reader</title>
+  <link rel="stylesheet" href="../node_modules/katex/dist/katex.min.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -22,6 +23,8 @@
       <span id="file-name">Untitled</span>
       <span id="dirty-dot" class="hidden" title="Unsaved changes">●</span>
       <button id="btn-guide" title="Markdown cheatsheet">? Guide</button>
+      <button id="btn-math-guide" title="LaTeX math cheatsheet">∑ Math</button>
+      <button id="btn-toggle-editor" title="Toggle Editor (Ctrl+E)">Editor</button>
       <button id="btn-toggle-preview" title="Toggle Preview (Ctrl+P)">Preview</button>
     </div>
   </header>
@@ -59,7 +62,23 @@
           <thead><tr><th>Element</th><th>Markdown syntax</th><th>Result</th></tr></thead>
           <tbody id="cheat-body"></tbody>
         </table>
-        <p class="cheat-note">Tip: <code>Ctrl+P</code> toggles the preview pane. This app supports GitHub-Flavored Markdown.</p>
+        <p class="cheat-note">Tip: <code>Ctrl+P</code> toggles the preview pane and <code>Ctrl+E</code> toggles the editor. This app supports GitHub-Flavored Markdown. For equations, see the <strong>∑ Math</strong> guide.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="math-guide" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="LaTeX math cheatsheet">
+    <div class="modal">
+      <header class="modal-header">
+        <h2>LaTeX Math Cheatsheet</h2>
+        <button id="btn-close-math-guide" class="modal-close" title="Close (Esc)">✕</button>
+      </header>
+      <div class="modal-body">
+        <table class="cheat-table">
+          <thead><tr><th>Element</th><th>LaTeX syntax</th><th>Result</th></tr></thead>
+          <tbody id="math-body"></tbody>
+        </table>
+        <p class="cheat-note">Wrap math in <code>$…$</code> to keep it inline with text, or <code>$$…$$</code> on its own lines for a centered equation. Write <code>\$</code> for a literal dollar sign. Full symbol list: <a href="https://katex.org/docs/supported" target="_blank" rel="noopener noreferrer">KaTeX supported functions</a>.</p>
       </div>
     </div>
   </div>

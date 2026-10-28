@@ -338,6 +338,10 @@ body.drag-over #drop-overlay { display: flex; }
 body.preview-hidden #preview-pane,
 body.preview-hidden #divider { display: none; }
 
+/* Hide editor when toggled off; preview takes full width. */
+body.editor-hidden #editor-pane,
+body.editor-hidden #divider { display: none; }
+
 #preview-pane { background: var(--bg); }
 
 #preview {
@@ -402,6 +406,12 @@ body.preview-hidden #divider { display: none; }
 
 .markdown-body img { max-width: 100%; border-radius: 4px; }
 .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
+
+/* KaTeX math — wide equations scroll instead of overflowing the pane. */
+.math-display { overflow-x: auto; overflow-y: hidden; }
+.markdown-body .katex { font-size: 1.1em; }
+.markdown-body .katex-error { color: #f48771 !important; }
+.cheat-result .katex-display { margin: 0.2em 0; text-align: left; }
 
 /* ------------------------------------------------------------------ */
 /* Status bar                                                         */

@@ -11,9 +11,13 @@ A personal, lightweight markdown reader/editor built with Electron.
 - **Synced scrolling** — the two panes track each other proportionally as you scroll.
 - **File management** — New, Open, Save, and Save As, with unsaved-changes prompts.
 - **Export** — save the rendered document as a standalone **HTML** file or a **PDF**.
-- **Cheatsheet** — a built-in markdown syntax guide (the **? Guide** button).
+- **Cheatsheets** — built-in guides for markdown syntax (**? Guide**) and LaTeX math (**∑ Math**).
 - **Draggable divider** to resize the editor/preview split.
-- **Toggle preview** for distraction-free writing.
+- **Toggle editor / preview** — show either pane alone, or both side by side.
+- **LaTeX math** via [KaTeX](https://katex.org/) — `$inline$`, `$$display$$`, `\(…\)`, `\[…\]`,
+  fenced ` ```math ` blocks, and chemistry with `\ce{…}` (mhchem). Math is included in HTML/PDF exports.
+- **Autosave** — documents with a file on disk are saved automatically every 60 seconds.
+- **Multiple windows** — each launch or double-clicked file opens its own window; **File → New Window** too.
 - Safe rendering: markdown is parsed with [marked](https://marked.js.org/) and sanitized with [DOMPurify](https://github.com/cure53/DOMPurify).
 
 ## Running
@@ -55,12 +59,14 @@ To publish a new version: bump `version` in `package.json`, commit, then run
 | Action          | Shortcut          |
 | --------------- | ----------------- |
 | New             | `Ctrl+N`          |
+| New Window      | `Ctrl+Shift+N`    |
 | Open            | `Ctrl+O`          |
 | Save            | `Ctrl+S`          |
 | Save As         | `Ctrl+Shift+S`    |
 | Export as HTML  | `Ctrl+Shift+E`    |
 | Export as PDF   | `Ctrl+Shift+P`    |
 | Toggle Preview  | `Ctrl+P`          |
+| Toggle Editor   | `Ctrl+E`          |
 
 ## Architecture
 
@@ -68,6 +74,7 @@ To publish a new version: bump `version` in `package.json`, commit, then run
 | ----------------------- | ------------------------------------------------------------------- |
 | `main.js`               | Electron main process: window, native menu, file dialogs, IPC.      |
 | `preload.js`            | Secure `contextBridge` API — markdown rendering + file operations.  |
+| `math.js`               | marked extension that renders LaTeX math with KaTeX.                |
 | `renderer/index.html`   | App layout with a strict Content-Security-Policy.                   |
 | `renderer/styles.css`   | Dark theme and rendered-markdown styling.                           |
 | `renderer/renderer.js`  | UI logic: live preview, dirty tracking, pane resizing.              |

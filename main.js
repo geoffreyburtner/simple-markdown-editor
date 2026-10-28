@@ -1,17 +1,10 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
 const fs = require('fs/promises');
 const fsSync = require('fs');
 const path = require('path');
 const os = require('os');
-
-/** @type {BrowserWindow | null} */
-let mainWindow = null;
-
-// A markdown file waiting to be opened once the renderer is ready (set when the
-// app is launched by double-clicking an associated file).
-let pendingFile = null;
 
 const OPENABLE_EXT = /\.(md|markdown|mdown|mkd|txt)$/i;
 
@@ -30,19 +23,17 @@ function fileArgFrom(argv) {
   return candidate ? path.resolve(candidate) : null;
 }
 
-// Tell the renderer to open a specific file.
-function openInRenderer(filePath) {
-  if (mainWindow && !mainWindow.webContents.isLoading()) {
-    mainWindow.webContents.send('file:open-path', filePath);
-  } else {
-    pendingFile = filePath;
-  }
-}
+// Each window is an independent document. `filePath` (optional) is opened in
+// the new window once its renderer has loaded.
+function createWindow(filePath = null) {
+  // Cascade new windows from the current one so they don't stack exactly.
+  const from = BrowserWindow.getFocusedWindow();
+  const offset = from ? { x: from.getBounds().x + 28, y: from.getBounds().y + 28 } : {};
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1280,
     height: 820,
+    ...offset,
     minWidth: 640,
     minHeight: 400,
     backgroundColor: '#1e1e1e',
@@ -57,31 +48,40 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
-  // Once the page is ready, hand off any file the app was launched to open.
-  mainWindow.webContents.on('did-finish-load', () => {
-    if (pendingFile) {
-      mainWindow.webContents.send('file:open-path', pendingFile);
-      pendingFile = null;
-    }
+  // Once the page is ready, hand off the file this window was opened for.
+  win.webContents.once('did-finish-load', () => {
+    if (filePath) win.webContents.send('file:open-path', filePath);
   });
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
+  // Links in the preview (target="_blank") open in the user's browser rather
+  // than in a new app window.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:|^mailto:/i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
   });
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
+  win.once('ready-to-show', () => {
+    win.show();
   });
+
+  return win;
+}
+
+// Dialogs are parented to whichever window asked for them.
+function senderWindow(event) {
+  return BrowserWindow.fromWebContents(event.sender);
 }
 
 // ---------------------------------------------------------------------------
 // Application menu — wires standard shortcuts to renderer actions.
 // ---------------------------------------------------------------------------
 
+// Menu commands act on the focused window.
 function send(channel) {
-  if (mainWindow) mainWindow.webContents.send(channel);
+  const win = BrowserWindow.getFocusedWindow();
+  if (win) win.webContents.send(channel);
 }
 
 function buildMenu() {
@@ -93,6 +93,7 @@ function buildMenu() {
       label: 'File',
       submenu: [
         { label: 'New', accelerator: 'CmdOrCtrl+N', click: () => send('menu:new') },
+        { label: 'New Window', accelerator: 'CmdOrCtrl+Shift+N', click: () => createWindow() },
         { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => send('menu:open') },
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => send('menu:save') },
@@ -124,6 +125,7 @@ function buildMenu() {
     {
       label: 'View',
       submenu: [
+        { label: 'Toggle Editor', accelerator: 'CmdOrCtrl+E', click: () => send('menu:toggle-editor') },
         { label: 'Toggle Preview', accelerator: 'CmdOrCtrl+P', click: () => send('menu:toggle-preview') },
         { type: 'separator' },
         { role: 'resetZoom' },
@@ -149,8 +151,8 @@ const MD_FILTERS = [
 ];
 
 // Open: show dialog, read the chosen file.
-ipcMain.handle('dialog:open', async () => {
-  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+ipcMain.handle('dialog:open', async (event) => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(senderWindow(event), {
     title: 'Open Markdown File',
     properties: ['openFile'],
     filters: MD_FILTERS
@@ -189,8 +191,8 @@ ipcMain.handle('file:save', async (_event, { filePath, content }) => {
 });
 
 // Save As: prompt for a path, then write.
-ipcMain.handle('dialog:save-as', async (_event, { content, defaultPath }) => {
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+ipcMain.handle('dialog:save-as', async (event, { content, defaultPath }) => {
+  const { canceled, filePath } = await dialog.showSaveDialog(senderWindow(event), {
     title: 'Save Markdown File',
     defaultPath: defaultPath || 'untitled.md',
     filters: MD_FILTERS
@@ -206,8 +208,8 @@ ipcMain.handle('dialog:save-as', async (_event, { content, defaultPath }) => {
 });
 
 // Ask the user how to handle unsaved changes. Returns 'save' | 'discard' | 'cancel'.
-ipcMain.handle('dialog:confirm-discard', async (_event, { name }) => {
-  const { response } = await dialog.showMessageBox(mainWindow, {
+ipcMain.handle('dialog:confirm-discard', async (event, { name }) => {
+  const { response } = await dialog.showMessageBox(senderWindow(event), {
     type: 'warning',
     buttons: ['Save', "Don't Save", 'Cancel'],
     defaultId: 0,
@@ -219,8 +221,8 @@ ipcMain.handle('dialog:confirm-discard', async (_event, { name }) => {
 });
 
 // Export the rendered document as a standalone HTML file.
-ipcMain.handle('dialog:export-html', async (_event, { html, defaultPath }) => {
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+ipcMain.handle('dialog:export-html', async (event, { html, defaultPath }) => {
+  const { canceled, filePath } = await dialog.showSaveDialog(senderWindow(event), {
     title: 'Export as HTML',
     defaultPath: defaultPath || 'document.html',
     filters: [{ name: 'HTML', extensions: ['html', 'htm'] }]
@@ -256,8 +258,8 @@ async function htmlToPdf(html) {
   }
 }
 
-ipcMain.handle('dialog:export-pdf', async (_event, { html, defaultPath }) => {
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+ipcMain.handle('dialog:export-pdf', async (event, { html, defaultPath }) => {
+  const { canceled, filePath } = await dialog.showSaveDialog(senderWindow(event), {
     title: 'Export as PDF',
     defaultPath: defaultPath || 'document.pdf',
     filters: [{ name: 'PDF', extensions: ['pdf'] }]
@@ -274,34 +276,33 @@ ipcMain.handle('dialog:export-pdf', async (_event, { html, defaultPath }) => {
 
 // ---------------------------------------------------------------------------
 
-// Ensure a single instance: a second launch (e.g. double-clicking another .md
-// file) is routed into the already-running window instead of opening anew.
+// One app process hosts every window. A second launch (starting the app again,
+// or double-clicking another .md file) is routed here and gets its own window.
 const gotLock = app.requestSingleInstanceLock();
 
 if (!gotLock) {
   app.quit();
 } else {
-  // Capture a file passed on the initial launch.
-  pendingFile = fileArgFrom(process.argv);
+  // Files requested before the app is ready (initial launch / macOS open-file).
+  const launchFiles = [];
+  const initialFile = fileArgFrom(process.argv);
+  if (initialFile) launchFiles.push(initialFile);
 
   app.on('second-instance', (_event, argv) => {
-    const filePath = fileArgFrom(argv);
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-      if (filePath) openInRenderer(filePath);
-    }
+    if (app.isReady()) createWindow(fileArgFrom(argv));
   });
 
   // macOS delivers file-open requests through this event rather than argv.
   app.on('open-file', (event, filePath) => {
     event.preventDefault();
-    openInRenderer(filePath);
+    if (app.isReady()) createWindow(filePath);
+    else launchFiles.push(filePath);
   });
 
   app.whenReady().then(() => {
     buildMenu();
-    createWindow();
+    if (launchFiles.length === 0) createWindow();
+    for (const filePath of launchFiles) createWindow(filePath);
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

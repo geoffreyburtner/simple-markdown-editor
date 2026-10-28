@@ -10,6 +10,7 @@ const dirtyDot = document.getElementById('dirty-dot');
 const statusPath = document.getElementById('status-path');
 const statusCounts = document.getElementById('status-counts');
 const togglePreviewBtn = document.getElementById('btn-toggle-preview');
+const toggleEditorBtn = document.getElementById('btn-toggle-editor');
 const divider = document.getElementById('divider');
 const workspace = document.getElementById('workspace');
 const editorPane = document.getElementById('editor-pane');
@@ -171,16 +172,50 @@ async function openDocumentPath(filePath) {
 // Returns true on a successful save, false if canceled/failed.
 async function saveDocument() {
   if (!state.filePath) return await saveDocumentAs();
-  const result = await window.api.saveFile(state.filePath, editor.value);
+  // Capture the content up front: the user may keep typing while the write is
+  // in flight, and those edits must still count as unsaved afterwards.
+  const content = editor.value;
+  const result = await window.api.saveFile(state.filePath, content);
   if (result.error) {
     alert(`Could not save file:\n${result.error}`);
     return false;
   }
-  state.savedContent = editor.value;
-  setDirty(false);
+  state.savedContent = content;
+  setDirty(editor.value !== content);
   updateTitleBar();
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// Periodic autosave
+// ---------------------------------------------------------------------------
+// Only documents that already have a file on disk are autosaved; untitled
+// documents would need a Save As dialog, which shouldn't pop up unprompted.
+const AUTOSAVE_INTERVAL_MS = 60 * 1000;
+let autosaving = false;
+
+async function autosave() {
+  if (autosaving || !state.dirty || !state.filePath) return;
+  autosaving = true;
+  const filePath = state.filePath;
+  const content = editor.value;
+  try {
+    const result = await window.api.saveFile(filePath, content);
+    if (result.error) {
+      showToast(`Autosave failed: ${result.error}`, true);
+      return;
+    }
+    // Ignore the result if a different document was opened mid-save.
+    if (state.filePath !== filePath) return;
+    state.savedContent = content;
+    setDirty(editor.value !== content);
+    updateTitleBar();
+  } finally {
+    autosaving = false;
+  }
+}
+
+setInterval(autosave, AUTOSAVE_INTERVAL_MS);
 
 async function saveDocumentAs() {
   const result = await window.api.saveFileAs(editor.value, baseName(state.filePath));
@@ -197,13 +232,32 @@ async function saveDocumentAs() {
 }
 
 // ---------------------------------------------------------------------------
-// Preview toggle
+// Editor / preview toggles
 // ---------------------------------------------------------------------------
-function togglePreview() {
-  const hidden = document.body.classList.toggle('preview-hidden');
-  togglePreviewBtn.classList.toggle('active', !hidden);
+function setPaneVisibility(editorVisible, previewVisible) {
+  document.body.classList.toggle('editor-hidden', !editorVisible);
+  document.body.classList.toggle('preview-hidden', !previewVisible);
+  toggleEditorBtn.classList.toggle('active', editorVisible);
+  togglePreviewBtn.classList.toggle('active', previewVisible);
 }
-togglePreviewBtn.classList.add('active'); // preview visible by default
+
+function isEditorVisible() { return !document.body.classList.contains('editor-hidden'); }
+function isPreviewVisible() { return !document.body.classList.contains('preview-hidden'); }
+
+// Hiding one pane while the other is already hidden brings the other back,
+// so the workspace is never left empty.
+function togglePreview() {
+  const show = !isPreviewVisible();
+  setPaneVisibility(show ? isEditorVisible() : true, show);
+}
+
+function toggleEditor() {
+  const show = !isEditorVisible();
+  setPaneVisibility(show, show ? isPreviewVisible() : true);
+  if (show) editor.focus();
+}
+
+setPaneVisibility(true, true); // both panes visible by default
 
 // ---------------------------------------------------------------------------
 // Draggable divider to resize panes
@@ -238,7 +292,7 @@ let scrollLock = false;
 function linkScroll(source, target) {
   source.addEventListener('scroll', () => {
     if (scrollLock) return;
-    if (document.body.classList.contains('preview-hidden')) return;
+    if (!isEditorVisible() || !isPreviewVisible()) return;
     scrollLock = true;
     const sourceRange = source.scrollHeight - source.clientHeight;
     const ratio = sourceRange > 0 ? source.scrollTop / sourceRange : 0;
@@ -292,6 +346,7 @@ const EXPORT_CSS = `
   tr:nth-child(even) td { background: #f6f8fa; }
   img { max-width: 100%; }
   hr { border: none; border-top: 1px solid #d0d7de; margin: 1.5em 0; }
+  .math-display { overflow-x: auto; overflow-y: hidden; }
 `;
 
 function documentTitle() {
@@ -305,13 +360,15 @@ function escapeHtml(s) {
 // Assemble a self-contained HTML document from the current markdown.
 function buildStandaloneHtml() {
   const body = window.api.renderMarkdown(editor.value);
+  // Only embed the (large, font-inlined) KaTeX stylesheet when there is math.
+  const mathCss = body.includes('class="katex') ? `<style>${window.api.katexCss()}</style>\n` : '';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(documentTitle())}</title>
-<style>${EXPORT_CSS}</style>
+${mathCss}<style>${EXPORT_CSS}</style>
 </head>
 <body>
 ${body}
@@ -386,10 +443,8 @@ window.addEventListener('drop', async (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Markdown cheatsheet modal
+// Cheatsheet modals (Markdown guide + LaTeX math guide)
 // ---------------------------------------------------------------------------
-const cheatsheet = document.getElementById('cheatsheet');
-const cheatBody = document.getElementById('cheat-body');
 
 // Each entry: `el` label, `md` the syntax shown, `block` for multi-line syntax,
 // and an optional `render` override for what the Result column actually renders.
@@ -414,8 +469,32 @@ const CHEATS = [
   { el: 'Table', md: '| A | B |\n| - | - |\n| 1 | 2 |', block: true }
 ];
 
-function buildCheatsheet() {
-  cheatBody.innerHTML = CHEATS.map((c) => {
+const MATH_CHEATS = [
+  { el: 'Inline math', md: 'Energy is $E = mc^2$ here.' },
+  { el: 'Display math', md: '$$\na^2 + b^2 = c^2\n$$', block: true },
+  { el: 'Superscript / subscript', md: '$x^2 \\quad x_i \\quad x_{i,j}^{n+1}$' },
+  { el: 'Fraction', md: '$\\frac{a}{b} \\quad \\tfrac{1}{2}$' },
+  { el: 'Roots', md: '$\\sqrt{x} \\quad \\sqrt[3]{x}$' },
+  { el: 'Greek letters', md: '$\\alpha \\beta \\gamma \\delta \\theta \\lambda \\mu \\pi \\sigma \\omega \\Delta \\Sigma \\Omega$' },
+  { el: 'Operators', md: '$a \\times b \\quad a \\cdot b \\quad a \\div b \\quad a \\pm b$' },
+  { el: 'Relations', md: '$\\le \\quad \\ge \\quad \\ne \\quad \\approx \\quad \\equiv \\quad \\propto$' },
+  { el: 'Sets & logic', md: '$\\in \\quad \\notin \\quad \\subset \\quad \\cup \\quad \\cap \\quad \\forall \\quad \\exists \\quad \\infty$' },
+  { el: 'Arrows', md: '$\\to \\quad \\Rightarrow \\quad \\Leftrightarrow \\quad \\mapsto$' },
+  { el: 'Sum & product', md: '$$\n\\sum_{i=1}^{n} i \\qquad \\prod_{k=1}^{n} k\n$$', block: true },
+  { el: 'Integral', md: '$$\n\\int_0^1 x^2\\,dx = \\frac{1}{3}\n$$', block: true },
+  { el: 'Limit', md: '$$\n\\lim_{x \\to 0} \\frac{\\sin x}{x} = 1\n$$', block: true },
+  { el: 'Derivatives', md: '$\\frac{dy}{dx} \\quad \\frac{\\partial f}{\\partial x} \\quad f\'(x)$' },
+  { el: 'Auto-sized brackets', md: '$\\left( \\frac{a}{b} \\right)$' },
+  { el: 'Accents & vectors', md: '$\\vec{v} \\quad \\hat{x} \\quad \\bar{x} \\quad \\dot{x}$' },
+  { el: 'Text inside math', md: '$x = 5 \\text{ if } y > 0$' },
+  { el: 'Matrix', md: '$$\n\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}\n$$', block: true },
+  { el: 'Aligned equations', md: '$$\n\\begin{aligned}\nf(x) &= (x+1)^2 \\\\\n     &= x^2 + 2x + 1\n\\end{aligned}\n$$', block: true },
+  { el: 'Piecewise', md: '$$\n|x| = \\begin{cases} x & x \\ge 0 \\\\ -x & x < 0 \\end{cases}\n$$', block: true },
+  { el: 'Chemistry', md: '$\\ce{2H2 + O2 -> 2H2O}$' }
+];
+
+function buildCheatsheet(tbody, entries) {
+  tbody.innerHTML = entries.map((c) => {
     const syntax = c.block ? `<pre>${escapeHtml(c.md)}</pre>` : `<code>${escapeHtml(c.md)}</code>`;
     const result = window.api.renderMarkdown(c.render || c.md);
     return `<tr><td>${escapeHtml(c.el)}</td>` +
@@ -423,19 +502,28 @@ function buildCheatsheet() {
            `<td class="cheat-result markdown-body">${result}</td></tr>`;
   }).join('');
 }
-buildCheatsheet();
 
-function openCheatsheet() { cheatsheet.classList.remove('hidden'); }
-function closeCheatsheet() { cheatsheet.classList.add('hidden'); }
+// Wire up a cheatsheet modal: open button, close button, backdrop click.
+const modals = [];
+function setupModal(modalId, openBtnId, closeBtnId) {
+  const modal = document.getElementById(modalId);
+  const close = () => modal.classList.add('hidden');
+  document.getElementById(openBtnId).addEventListener('click', () => modal.classList.remove('hidden'));
+  document.getElementById(closeBtnId).addEventListener('click', close);
+  // Close when clicking the backdrop (outside the modal box).
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) close();
+  });
+  modals.push(modal);
+}
 
-document.getElementById('btn-guide').addEventListener('click', openCheatsheet);
-document.getElementById('btn-close-cheatsheet').addEventListener('click', closeCheatsheet);
-// Close when clicking the backdrop (outside the modal box).
-cheatsheet.addEventListener('click', (e) => {
-  if (e.target === cheatsheet) closeCheatsheet();
-});
+buildCheatsheet(document.getElementById('cheat-body'), CHEATS);
+buildCheatsheet(document.getElementById('math-body'), MATH_CHEATS);
+setupModal('cheatsheet', 'btn-guide', 'btn-close-cheatsheet');
+setupModal('math-guide', 'btn-math-guide', 'btn-close-math-guide');
+
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !cheatsheet.classList.contains('hidden')) closeCheatsheet();
+  if (e.key === 'Escape') modals.forEach((m) => m.classList.add('hidden'));
 });
 
 // ---------------------------------------------------------------------------
@@ -448,12 +536,14 @@ document.getElementById('btn-save-as').addEventListener('click', saveDocumentAs)
 document.getElementById('btn-export-html').addEventListener('click', exportAsHtml);
 document.getElementById('btn-export-pdf').addEventListener('click', exportAsPdf);
 togglePreviewBtn.addEventListener('click', togglePreview);
+toggleEditorBtn.addEventListener('click', toggleEditor);
 
 window.api.onMenu('menu:new', newDocument);
 window.api.onMenu('menu:open', openDocument);
 window.api.onMenu('menu:save', saveDocument);
 window.api.onMenu('menu:save-as', saveDocumentAs);
 window.api.onMenu('menu:toggle-preview', togglePreview);
+window.api.onMenu('menu:toggle-editor', toggleEditor);
 window.api.onMenu('menu:export-html', exportAsHtml);
 window.api.onMenu('menu:export-pdf', exportAsPdf);
 
@@ -471,8 +561,9 @@ window.addEventListener('beforeunload', (e) => {
 // ---------------------------------------------------------------------------
 // Initial state
 // ---------------------------------------------------------------------------
-loadDocument(null, '# Welcome to Markdown Reader\n\n' +
+loadDocument(null, '# Geoff\'s Markdown Reader\n\n' +
   'Type on the **left**, see the rendered preview on the **right**.\n\n' +
-  '- Live preview\n- Dark mode\n- New / Open / Save / Save As\n\n' +
+  '- Live preview\n- Dark mode\n- New / Open / Save / Save As\n' +
+  '- LaTeX math, e.g. $e^{i\\pi} + 1 = 0$\n\n' +
   '> Use `Ctrl+P` to toggle the preview pane.\n');
 setDirty(false);
